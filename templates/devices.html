@@ -1,0 +1,470 @@
+{% extends "base.html" %}
+
+{% block title %}Sorting & Devices Control Center — ParcelPulse IoT{% endblock %}
+
+{% block content %}
+<div class="page-header page-header-row">
+    <div>
+        <h1 class="page-title">Sorting & Devices Control Center</h1>
+        <p class="page-subtitle">Industrial IoT hub: ESP32 nodes, conveyor driver, optical barcode vision, and 3-lane diverter automation</p>
+    </div>
+    <div class="header-actions">
+        <span class="badge badge-scan" style="font-size: 0.8rem; padding: 6px 12px;">
+            <i class="fas fa-tower-broadcast"></i> Telemetry Sync: 5s
+        </span>
+    </div>
+</div>
+
+<!-- Honest Hardware State Disclaimer Banner -->
+<div class="alert-banner-warning">
+    <i class="fas fa-triangle-exclamation"></i>
+    <div>
+        <strong>Physical Hardware Disconnected:</strong>
+        No microcontrollers or sensors are currently wired to the local serial bus. Statuses displayed below reflect database records and hardware-emulated telemetry.
+    </div>
+</div>
+
+<!-- SECTION A: Three Distinct ESP32 Hub Nodes -->
+<div class="section-headline">
+    <h2><i class="fas fa-network-wired" style="color: var(--cyan-600);"></i> Core ESP32 Control Nodes</h2>
+    <span class="section-tag">3 Subsystems</span>
+</div>
+
+<div class="hub-grid">
+    <!-- 1. Main ESP32 Hub -->
+    <div class="hub-card active-hub">
+        <div class="hub-header">
+            <div>
+                <span class="hub-badge" style="background: var(--cyan-soft); color: #0284c7; border: 1px solid var(--cyan-border);">Node 01</span>
+                <div class="hub-title" style="margin-top: 6px;">Main ESP32 Sorter</div>
+                <div class="hub-subtitle">Actuator & Mechanical Diverter Hub</div>
+            </div>
+            <span class="badge {{ 'badge-online' if esp_main and esp_main.status == 'online' else 'badge-offline' }}">
+                <span class="status-dot {{ 'online pulse' if esp_main and esp_main.status == 'online' else 'offline' }}"></span>
+                {{ esp_main.status|capitalize if esp_main else 'Offline' }}
+            </span>
+        </div>
+        
+        <div class="hub-subsystems">
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-arrows-left-right" style="color: var(--blue-600);"></i> Conveyor Belt (CONV-01)
+                </span>
+                <span class="font-mono" style="font-weight: 600; font-size: 0.8rem; color: {% if conveyor and conveyor.status == 'online' %}var(--green-600){% else %}var(--red-500){% endif %};">
+                    {{ conveyor.status|upper if conveyor else 'OFFLINE' }}
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-gear" style="color: var(--amber-600);"></i> Motor Driver (MTR-01)
+                </span>
+                <span class="font-mono" style="font-weight: 600; font-size: 0.8rem; color: {% if motor and motor.status == 'online' %}var(--green-600){% else %}var(--red-500){% endif %};">
+                    {{ motor.status|upper if motor else 'OFFLINE' }}
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-rotate" style="color: #7c3aed;"></i> Servo Diverter (SRV-01)
+                </span>
+                <span class="font-mono" style="font-weight: 600; font-size: 0.8rem; color: {% if servo and servo.status == 'online' %}var(--green-600){% else %}var(--red-500){% endif %};">
+                    {{ servo.status|upper if servo else 'OFFLINE' }}
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-satellite-dish" style="color: var(--green-600);"></i> IR Bin Sensors (IR-01 & 02)
+                </span>
+                <span class="font-mono" style="font-weight: 600; font-size: 0.8rem; color: var(--green-600);">
+                    ACTIVE (2/2)
+                </span>
+            </div>
+        </div>
+
+        <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; justify-content: space-between; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
+            <span>Identifier: <code class="font-mono">{{ esp_main.device_id if esp_main else 'ESP32-SORT-01' }}</code></span>
+            <span>Seen: {{ esp_main.last_seen[:16] if esp_main and esp_main.last_seen else 'N/A' }}</span>
+        </div>
+    </div>
+
+    <!-- 2. ESP32-CAM Hub -->
+    <div class="hub-card active-hub">
+        <div class="hub-header">
+            <div>
+                <span class="hub-badge" style="background: rgba(0, 212, 255, 0.12); color: #0891b2; border: 1px solid var(--cyan-border);">Node 02</span>
+                <div class="hub-title" style="margin-top: 6px;">ESP32-CAM Vision</div>
+                <div class="hub-subtitle">Optical QR Barcode Identifier</div>
+            </div>
+            <span class="badge {{ 'badge-online' if esp_cam and esp_cam.status == 'online' else 'badge-offline' }}">
+                <span class="status-dot {{ 'online pulse' if esp_cam and esp_cam.status == 'online' else 'offline' }}"></span>
+                {{ esp_cam.status|capitalize if esp_cam else 'Offline' }}
+            </span>
+        </div>
+
+        <div class="hub-subsystems">
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-camera" style="color: var(--cyan-600);"></i> OV2640 Lens Stream
+                </span>
+                <span class="font-mono" style="font-weight: 600; font-size: 0.8rem; color: var(--green-600);">
+                    FRAME_READY
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-qrcode" style="color: var(--blue-600);"></i> Scanner Pipeline
+                </span>
+                <span class="font-mono" style="font-weight: 600; font-size: 0.8rem; color: var(--cyan-600);">
+                    DECODER_STANDBY
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-barcode" style="color: var(--text-secondary);"></i> Recent Target
+                </span>
+                <span class="font-mono" style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary);">
+                    {{ last_qr_event.parcel_id if last_qr_event else 'None' }}
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-circle-info" style="color: var(--amber-600);"></i> Detection Result
+                </span>
+                <span class="badge {% if last_qr_event and last_qr_event.event_type == 'error' %}badge-error{% else %}badge-scan{% endif %}" style="font-size: 0.7rem;">
+                    {{ last_qr_event.event_type|upper if last_qr_event else 'NO_SCANS' }}
+                </span>
+            </div>
+        </div>
+
+        <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; justify-content: space-between; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
+            <span>Identifier: <code class="font-mono">{{ esp_cam.device_id if esp_cam else 'ESP32-SORT-02' }}</code></span>
+            <span>Seen: {{ esp_cam.last_seen[:16] if esp_cam and esp_cam.last_seen else 'N/A' }}</span>
+        </div>
+    </div>
+
+    <!-- 3. Tracking ESP32 Hub -->
+    <div class="hub-card">
+        <div class="hub-header">
+            <div>
+                <span class="hub-badge" style="background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid #cbd5e1;">Node 03</span>
+                <div class="hub-title" style="margin-top: 6px;">Tracking ESP32</div>
+                <div class="hub-subtitle">Cellular / GPS Telemetry Uplink</div>
+            </div>
+            <span class="badge {{ 'badge-online' if esp_gps and esp_gps.status == 'online' else 'badge-offline' }}">
+                <span class="status-dot {{ 'online' if esp_gps and esp_gps.status == 'online' else 'offline' }}"></span>
+                {{ esp_gps.status|capitalize if esp_gps else 'Offline' }}
+            </span>
+        </div>
+
+        <div class="hub-subsystems">
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-satellite" style="color: var(--cyan-600);"></i> GPS Receiver Fix
+                </span>
+                <span class="badge badge-pending" style="font-size: 0.7rem;">
+                    DEMO SIMULATION
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-location-arrow" style="color: var(--blue-600);"></i> Coordinates
+                </span>
+                <span class="font-mono" style="font-size: 0.8rem; font-weight: 600;">
+                    {% if latest_gps %}
+                    {{ "%.4f"|format(latest_gps.latitude) }}, {{ "%.4f"|format(latest_gps.longitude) }}
+                    {% else %}
+                    23.0225, 72.5714
+                    {% endif %}
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-box" style="color: var(--text-secondary);"></i> Active Payload
+                </span>
+                <span class="font-mono" style="font-size: 0.8rem; font-weight: 700;">
+                    {{ latest_gps.parcel_id if latest_gps else 'PP-AHM-001' }}
+                </span>
+            </div>
+            <div class="subsystem-row">
+                <span class="subsystem-name">
+                    <i class="fas fa-clock" style="color: var(--text-muted);"></i> Last Position Fix
+                </span>
+                <span class="font-mono" style="font-size: 0.78rem; color: var(--text-muted);">
+                    {{ latest_gps.timestamp[-8:] if latest_gps else '12:00:00' }}
+                </span>
+            </div>
+        </div>
+
+        <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
+            <span>Identifier: <code class="font-mono">{{ esp_gps.device_id if esp_gps else 'ESP32-SORT-03' }}</code></span>
+            <a href="/tracking" class="btn btn-primary btn-sm" style="padding: 3px 8px; font-size: 0.72rem;">
+                Map View <i class="fas fa-arrow-right"></i>
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- SECTION B: Conveyor & Motor Driver Station -->
+<div class="conveyor-control-strip">
+    <div class="conveyor-strip-inner">
+        <div class="conveyor-visual-group">
+            <div class="conveyor-belt-icon">
+                <i class="fas fa-arrows-left-right"></i>
+            </div>
+            <div class="conveyor-status-meta">
+                <h3>Main Sorting Conveyor Belt</h3>
+                <p>Status: <strong style="color: var(--cyan-500);">RUNNING / OPERATIONAL (Software State)</strong> • Target Feed: Variable Sorting Line</p>
+            </div>
+        </div>
+
+        <div class="conveyor-telemetry-pills">
+            <div class="telemetry-pill">
+                <span class="t-label">Motor State</span>
+                <span class="t-val" style="color: var(--green-500);">FORWARD RUN</span>
+            </div>
+            <div class="telemetry-pill">
+                <span class="t-label">PWM Speed</span>
+                <span class="t-val">85% (180 RPM)</span>
+            </div>
+            <div class="telemetry-pill">
+                <span class="t-label">Safety Interlock</span>
+                <span class="t-val" style="color: var(--amber-500);">BIN-2 LOCK ACTIVE</span>
+            </div>
+            <div class="telemetry-pill">
+                <span class="t-label">Controller Interface</span>
+                <span class="t-val" style="font-size: 0.85rem; color: #94a3b8;">GPIO 18 / 19 (ESP32)</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SECTION C & D: Three Destination Sorting Lanes & IR Bin-Full Alert Station -->
+<div class="section-headline">
+    <h2><i class="fas fa-route" style="color: var(--cyan-600);"></i> Three-Destination Sorting Lanes</h2>
+    <span class="section-tag">Diverter Servos & IR Optical Level Sensors</span>
+</div>
+
+<div class="sorting-lanes-grid">
+    {% for lane in lanes %}
+    <div class="lane-card {% if lane.is_full %}lane-full{% endif %}">
+        <div class="lane-header">
+            <div>
+                <span class="lane-badge">LANE 0{{ lane.lane }} • BIN {{ lane.bin_number }}</span>
+                <div class="lane-dest-title" style="margin-top: 6px;">
+                    <i class="fas fa-location-dot" style="color: {{ lane.color }};"></i>
+                    {{ lane.destination }}
+                </div>
+            </div>
+            <span class="badge {% if lane.is_full %}badge-error{% else %}badge-sorted{% endif %}">
+                <span class="status-dot {% if lane.is_full %}offline pulse{% else %}online{% endif %}"></span>
+                {{ lane.status }}
+            </span>
+        </div>
+
+        <!-- Capacity Meter -->
+        <div class="lane-progress-wrapper">
+            <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 6px;">
+                <span style="font-weight: 600; color: var(--text-secondary);">Bin Fill Level</span>
+                <span class="font-mono" style="font-weight: 700; color: {% if lane.is_full %}var(--red-600){% else %}var(--text-primary){% endif %};">
+                    {{ lane.capacity_current }} / {{ lane.capacity_max }} Units ({% if lane.is_full %}100% FULL{% else %}13%{% endif %})
+                </span>
+            </div>
+            <div class="lane-progress-bar">
+                <div class="lane-progress-fill" style="width: {% if lane.is_full %}100%{% else %}13.3%{% endif %}; background: {% if lane.is_full %}var(--red-500){% else %}{{ lane.color }}{% endif %};"></div>
+            </div>
+        </div>
+
+        <!-- Lane Diagnostics -->
+        <div class="lane-detail-list">
+            <div class="lane-detail-item">
+                <span>Diverter Servo Angle</span>
+                <span class="font-mono">{{ lane.angle }}</span>
+            </div>
+            <div class="lane-detail-item">
+                <span>Total Sorted Count</span>
+                <span class="font-mono">{{ lane.sorted_count }} parcels</span>
+            </div>
+            <div class="lane-detail-item">
+                <span>IR Level Sensor</span>
+                <span style="color: {% if lane.is_full %}var(--red-600); font-weight: 700;{% else %}var(--green-600);{% endif %}">
+                    {% if lane.is_full %}<i class="fas fa-triangle-exclamation"></i> BEAM INTERRUPTED (FULL){% else %}<i class="fas fa-check"></i> CLEAR (OPEN){% endif %}
+                </span>
+            </div>
+            <div class="lane-detail-item">
+                <span>Last Sorting Event</span>
+                <span style="font-size: 0.75rem; text-align: right; max-width: 60%;">{{ lane.last_event }}</span>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- SECTION D: Dedicated Bin-Full Alarm Station -->
+<div class="alert-banner-danger">
+    <div style="display: flex; align-items: center; gap: 16px;">
+        <div style="width: 44px; height: 44px; border-radius: 50%; background: #fee2e2; border: 2px solid var(--red-500); display: flex; align-items: center; justify-content: center; color: var(--red-600); font-size: 1.3rem;">
+            <i class="fas fa-bell"></i>
+        </div>
+        <div>
+            <div style="font-weight: 700; font-size: 1.05rem; color: #991b1b; display: flex; align-items: center; gap: 8px;">
+                <span>CRITICAL HARDWARE ALERT: Collection Bin 2 (Surat) is at 100% Capacity</span>
+                <span class="badge badge-error" style="font-size: 0.7rem;">ACTION REQUIRED</span>
+            </div>
+            <p style="font-size: 0.85rem; color: #7f1d1d; margin-top: 2px;">
+                Exit IR Sensor <code>IR-02</code> detected continuous beam break for >5 seconds. Conveyor diverter interlock has been triggered to divert incoming Surat parcels to buffer.
+            </p>
+        </div>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center; flex-shrink: 0;">
+        <span class="badge" style="background: #991b1b; color: #ffffff; padding: 6px 12px;">
+            <i class="fas fa-volume-high"></i> Buzzer: ACTIVE
+        </span>
+        <span class="badge" style="background: #ef4444; color: #ffffff; padding: 6px 12px;">
+            <i class="fas fa-lightbulb"></i> Strobe: BLINKING
+        </span>
+    </div>
+</div>
+
+<!-- SECTION E & F: Vision Scanner & GPS Inspection Two-Column -->
+<div class="tracking-layout-grid" style="margin-bottom: 28px;">
+    <!-- Section E: Optical QR Camera Pipeline -->
+    <div class="card">
+        <div class="card-header-clean">
+            <h3><i class="fas fa-camera-retro" style="color: var(--cyan-600);"></i> ESP32-CAM QR Vision Pipeline</h3>
+            <span class="badge badge-online">Vision Active</span>
+        </div>
+        
+        <div style="background: var(--navy-900); color: #ffffff; padding: 18px; border-radius: var(--radius-md); margin-bottom: 16px; border: 1px solid rgba(0, 212, 255, 0.2);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.78rem; color: #94a3b8;">
+                <span><i class="fas fa-video"></i> OV2640 CAMERA FRAME BUFFER</span>
+                <span class="badge badge-scan font-mono" style="font-size: 0.68rem;">640x480 @ 15fps</span>
+            </div>
+            
+            <div style="background: rgba(0, 0, 0, 0.4); padding: 14px; border-radius: var(--radius-sm); border: 1px dashed rgba(0, 212, 255, 0.4); text-align: center;">
+                <div style="font-size: 2.2rem; color: var(--cyan-500); margin-bottom: 6px;">
+                    <i class="fas fa-qrcode"></i>
+                </div>
+                <div style="font-weight: 700; font-size: 1.05rem;" class="font-mono">
+                    {{ last_qr_event.parcel_id if last_qr_event else 'PP-AHM-004' }}
+                </div>
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">
+                    Recognised Destination: <strong style="color: var(--cyan-500);">{{ last_qr_parcel.destination if last_qr_parcel else 'Ahmedabad' }}</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="subsystem-row" style="margin-bottom: 8px;">
+            <span>Last Scan Timestamp</span>
+            <span class="font-mono" style="font-weight: 600;">{{ last_qr_event.created_at if last_qr_event else 'Just now' }}</span>
+        </div>
+        <div class="subsystem-row">
+            <span>Scan Result Summary</span>
+            <span style="font-weight: 600; color: {% if last_qr_event and last_qr_event.event_type == 'error' %}var(--red-600){% else %}var(--green-600){% endif %};">
+                {{ last_qr_event.description if last_qr_event else 'Parcel scanned at entry' }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Section F: Tracking Telemetry Inspection -->
+    <div class="card">
+        <div class="card-header-clean">
+            <h3><i class="fas fa-location-crosshairs" style="color: var(--blue-600);"></i> GPS Telemetry Hub</h3>
+            <span class="badge badge-scan">NMEA Engine</span>
+        </div>
+
+        <div style="background: var(--bg-surface-subtle); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--border-light); margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Current Telemetry Node</span>
+                <span class="badge badge-pending font-mono" style="font-size: 0.7rem;">SIMULATED FIX</span>
+            </div>
+            
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono);">
+                {% if latest_gps %}
+                {{ "%.6f"|format(latest_gps.latitude) }}° N<br>
+                {{ "%.6f"|format(latest_gps.longitude) }}° E
+                {% else %}
+                23.022500° N<br>72.571400° E
+                {% endif %}
+            </div>
+            
+            <div style="margin-top: 10px; font-size: 0.82rem; color: var(--text-muted); display: flex; justify-content: space-between;">
+                <span>Active Target: <strong class="font-mono" style="color: var(--text-primary);">{{ latest_gps.parcel_id if latest_gps else 'PP-AHM-001' }}</strong></span>
+                <span>Region: <strong style="color: var(--cyan-600);">Gujarat, IN</strong></span>
+            </div>
+        </div>
+
+        <div class="subsystem-row" style="margin-bottom: 8px;">
+            <span>Last GPS Uplink</span>
+            <span class="font-mono" style="font-weight: 600;">{{ latest_gps.timestamp if latest_gps else 'N/A' }}</span>
+        </div>
+        <div class="subsystem-row" style="margin-bottom: 16px;">
+            <span>Receiver Fix Integrity</span>
+            <span style="color: var(--green-600); font-weight: 600;"><i class="fas fa-check-circle"></i> 3D Demonstration Fix (8 Satellites)</span>
+        </div>
+
+        <a href="/tracking" class="btn btn-primary" style="width: 100%;">
+            <i class="fas fa-map-marked-alt"></i> Open in Live Tracking Map
+        </a>
+    </div>
+</div>
+
+<!-- SECTION G: Device Event Log -->
+<div class="table-card">
+    <div class="table-header-bar">
+        <div class="table-title">
+            <i class="fas fa-terminal" style="color: var(--cyan-600);"></i>
+            <span>Device Audit Trail & Sensor Events</span>
+        </div>
+        <div class="search-input-wrapper" style="max-width: 280px;">
+            <i class="fas fa-search"></i>
+            <input type="text" id="device-event-search" placeholder="Filter device events..." oninput="filterDeviceEvents()">
+        </div>
+    </div>
+    <div class="table-wrapper">
+        <table id="device-events-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Device Identifier</th>
+                    <th>Event Category</th>
+                    <th>Associated Parcel</th>
+                    <th>Result / Severity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ev in device_events %}
+                <tr>
+                    <td class="font-mono" style="font-size: 0.8rem; color: var(--text-muted);">{{ ev.created_at }}</td>
+                    <td>
+                        <code class="font-mono" style="font-weight: 600; background: var(--bg-surface-subtle); padding: 3px 8px; border-radius: 4px; font-size: 0.8rem;">
+                            {{ ev.device_id or 'SYSTEM-CORE' }}
+                        </code>
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ ev.event_type }}">{{ ev.event_type }}</span>
+                    </td>
+                    <td><strong class="font-mono">{{ ev.parcel_id }}</strong></td>
+                    <td style="font-size: 0.85rem;">{{ ev.description }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="empty-state">No device events logged yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterDeviceEvents() {
+    const query = document.getElementById('device-event-search').value.toLowerCase();
+    const rows = document.querySelectorAll('#device-events-table tbody tr');
+    rows.forEach(r => {
+        const text = r.textContent.toLowerCase();
+        r.style.display = text.includes(query) ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ParcelPulse IoT — Logistics & Sorting Control Center{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <!-- Mobile top bar -->
+    <div class="mobile-header">
+        <div class="logo-row">
+            <div class="logo-badge" style="width: 32px; height: 32px; font-size: 1rem;">
+                <i class="fas fa-boxes-packing"></i>
+            </div>
+            <div class="brand-title" style="font-size: 1rem;">
+                Parcel<span>Pulse</span>
+            </div>
+        </div>
+        <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Toggle Navigation">
+            <i class="fas fa-bars"></i>
+        </button>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+    
+    <!-- Midnight Navy Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-row">
+                <div class="logo-badge">
+                    <i class="fas fa-boxes-packing"></i>
+                </div>
+                <div class="logo-text">
+                    <div class="brand-title">Parcel<span>Pulse</span></div>
+                    <div class="brand-tag">IoT Sorting Core</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-section-title">Navigation</div>
+        <ul class="nav-links">
+            <li>
+                <a href="/" class="{% if request.path == '/' %}active{% endif %}">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Overview Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="/tracking" class="{% if request.path == '/tracking' %}active{% endif %}">
+                    <i class="fas fa-satellite-dish"></i>
+                    <span>Live GPS Tracking</span>
+                </a>
+            </li>
+            <li>
+                <a href="/parcels" class="{% if request.path == '/parcels' %}active{% endif %}">
+                    <i class="fas fa-box-archive"></i>
+                    <span>Parcel Management</span>
+                </a>
+            </li>
+            <li>
+                <a href="/devices" class="{% if request.path == '/devices' %}active{% endif %}">
+                    <i class="fas fa-sliders"></i>
+                    <span>Sorting & Devices</span>
+                </a>
+            </li>
+            <li>
+                <a href="/history" class="{% if request.path == '/history' %}active{% endif %}">
+                    <i class="fas fa-list-check"></i>
+                    <span>History & Alerts</span>
+                </a>
+            </li>
+        </ul>
+
+        <div class="sidebar-footer">
+            <div class="system-status-chip">
+                <div class="status-indicator-group">
+                    <span class="status-dot online pulse"></span>
+                    <span>Backend Active</span>
+                </div>
+                <span class="badge-version">v2.4-PRO</span>
+            </div>
+        </div>
+    </aside>
+    
+    <!-- Main Content Area -->
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

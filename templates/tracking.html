@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}Live GPS Tracking — ParcelPulse IoT{% endblock %}
+
+{% block content %}
+<div class="page-header page-header-row">
+    <div>
+        <h1 class="page-title">Live GPS Tracking & Route Telemetry</h1>
+        <p class="page-subtitle">Real-time parcel transit tracking across Gujarat logistics corridors with 5-second polling</p>
+    </div>
+    <div class="header-actions">
+        <span class="badge badge-scan" style="font-size: 0.8rem; padding: 6px 12px;">
+            <span class="status-dot online pulse"></span> Live Telemetry Active
+        </span>
+    </div>
+</div>
+
+<!-- Info Disclaimer Banner -->
+<div class="alert-banner-info">
+    <i class="fas fa-satellite-dish"></i>
+    <div>
+        <strong>Demonstration GPS Coordinates Active:</strong>
+        Pins represent pre-calibrated logistics corridors in Ahmedabad, Surat, and Rajkot. To push physical GPS hardware updates, transmit NMEA packets via <code>POST /api/gps</code> authenticated with your device API key.
+    </div>
+</div>
+
+<!-- Main Tracking Grid (Map 2/3, Inspection Panel 1/3) -->
+<div class="tracking-layout-grid">
+    <!-- Left: Prominent Map Container -->
+    <div class="card" style="padding: 0; overflow: hidden; display: flex; flex-direction: column;">
+        <div class="table-header-bar" style="border-bottom: 1px solid var(--border-light);">
+            <div class="table-title">
+                <i class="fas fa-earth-asia" style="color: var(--cyan-600);"></i>
+                <span>OpenStreetMap Gujarat Routing View</span>
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 12px;">
+                <span><span class="status-dot" style="background: #00d4ff;"></span> Ahmedabad</span>
+                <span><span class="status-dot" style="background: #f59e0b;"></span> Surat</span>
+                <span><span class="status-dot" style="background: #10b981;"></span> Rajkot</span>
+            </div>
+        </div>
+        <div id="map"></div>
+    </div>
+
+    <!-- Right: Telemetry & Selection Panel -->
+    <div class="tracking-sidebar-card">
+        <div class="card-header-clean">
+            <h3><i class="fas fa-crosshairs" style="color: var(--cyan-600);"></i> Parcel Telemetry</h3>
+            <span class="badge badge-scan" style="font-size: 0.7rem;">Uplink Synced</span>
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 16px;">
+            <label for="parcel-select">Select Active Package:</label>
+            <select id="parcel-select" class="input-control filter-select" style="width: 100%;" onchange="onParcelSelectChange(this.value)">
+                <option value="">-- Choose a Parcel to Track --</option>
+                {% for p in all_parcels %}
+                <option value="{{ p.parcel_id }}">{{ p.parcel_id }} ({{ p.destination }}) • {{ p.status|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="tracking-detail-block">
+            <div class="tracking-detail-row">
+                <span class="lbl">Parcel Identifier</span>
+                <span class="val font-mono" id="detail-parcel-id">-</span>
+            </div>
+            <div class="tracking-detail-row">
+                <span class="lbl">Destination Hub</span>
+                <span class="val" id="detail-destination">-</span>
+            </div>
+            <div class="tracking-detail-row">
+                <span class="lbl">Sorting Status</span>
+                <span class="val" id="detail-status">-</span>
+            </div>
+            <div class="tracking-detail-row">
+                <span class="lbl">Latitude (N)</span>
+                <span class="val font-mono" id="detail-lat" style="color: var(--cyan-600);">-</span>
+            </div>
+            <div class="tracking-detail-row">
+                <span class="lbl">Longitude (E)</span>
+                <span class="val font-mono" id="detail-lng" style="color: var(--cyan-600);">-</span>
+            </div>
+            <div class="tracking-detail-row">
+                <span class="lbl">Fix Quality</span>
+                <span class="val" style="color: var(--green-600); font-size: 0.8rem;">
+                    <i class="fas fa-satellite"></i> 3D Demo Fix (8 Sats)
+                </span>
+            </div>
+            <div class="tracking-detail-row">
+                <span class="lbl">Last Uplink Time</span>
+                <span class="val font-mono" id="detail-updated" style="font-size: 0.8rem; color: var(--text-muted);">-</span>
+            </div>
+        </div>
+
+        <div style="background: var(--bg-surface-subtle); padding: 12px 14px; border-radius: var(--radius-md); font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; margin-top: auto;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="status-dot online pulse"></span>
+                <span>Polling `/api/gps` (5s interval)</span>
+            </div>
+            <span class="badge badge-online" style="font-size: 0.68rem;">Healthy</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
+<script>
+    const parcelsData = [
+        {% for p in parcels %}
+        {
+            parcel_id: {{ p.parcel_id|tojson }},
+            destination: {{ p.destination|tojson }},
+            status: {{ p.status|tojson }},
+            latitude: {{ p.latitude if p.latitude is not none else 'null' }},
+            longitude: {{ p.longitude if p.longitude is not none else 'null' }},
+            gps_updated_at: {{ p.gps_updated_at|tojson if p.gps_updated_at else 'null' }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    document.addEventListener('DOMContentLoaded', function() {
+        initMap(parcelsData);
+        
+        // Deep linking: check URL parameters for ?parcel_id=PP-xxx
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetId = urlParams.get('parcel_id');
+        
+        if (targetId && markers[targetId]) {
+            selectParcel(targetId);
+        } else if (parcelsData.length > 0) {
+            selectParcel(parcelsData[0].parcel_id);
+        }
+    });
+</script>
+{% endblock %}

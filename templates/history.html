@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}History & Alerts Audit Log — ParcelPulse IoT{% endblock %}
+
+{% block content %}
+<div class="page-header page-header-row">
+    <div>
+        <h1 class="page-title">Operations Audit Log & System Alerts</h1>
+        <p class="page-subtitle">Chronological ledger of optical scans, mechanical sorting actions, IR interrupts, and automated alerts</p>
+    </div>
+    <div class="header-actions">
+        <span class="badge badge-scan" style="font-size: 0.8rem; padding: 6px 12px;">
+            <i class="fas fa-database"></i> {{ events|length }} Total Ledger Records
+        </span>
+    </div>
+</div>
+
+<!-- Event Type Filter Chips -->
+{% set sorted_count = events|selectattr('event_type', 'equalto', 'sorted')|list|length %}
+{% set scan_count = events|selectattr('event_type', 'equalto', 'scan')|list|length %}
+{% set bin_full_count = events|selectattr('event_type', 'equalto', 'bin_full')|list|length %}
+{% set error_count = events|selectattr('event_type', 'equalto', 'error')|list|length %}
+{% set reg_count = events|selectattr('event_type', 'equalto', 'parcel_registered')|list|length %}
+
+<div class="filter-chips">
+    <button class="chip-btn active" onclick="setChipFilter('all', this)">
+        <i class="fas fa-list"></i> All Activity ({{ events|length }})
+    </button>
+    <button class="chip-btn" onclick="setChipFilter('sorted', this)">
+        <span class="status-dot online"></span> Sorted ({{ sorted_count }})
+    </button>
+    <button class="chip-btn" onclick="setChipFilter('scan', this)">
+        <span class="status-dot" style="background: var(--cyan-500);"></span> QR Scans ({{ scan_count }})
+    </button>
+    <button class="chip-btn" onclick="setChipFilter('bin_full', this)">
+        <span class="status-dot warning"></span> Bin Full Alerts ({{ bin_full_count }})
+    </button>
+    <button class="chip-btn" onclick="setChipFilter('error', this)">
+        <span class="status-dot offline"></span> Errors & Retries ({{ error_count }})
+    </button>
+    <button class="chip-btn" onclick="setChipFilter('parcel_registered', this)">
+        <span class="status-dot" style="background: var(--blue-600);"></span> Registrations ({{ reg_count }})
+    </button>
+</div>
+
+<!-- Search Input Control -->
+<div class="filter-bar">
+    <div class="search-input-wrapper">
+        <i class="fas fa-search"></i>
+        <input type="text" id="history-search" placeholder="Search by Parcel ID, device identifier, or message keywords..." oninput="applyHistoryFilter()">
+    </div>
+</div>
+
+<!-- Audit Log Table -->
+<div class="table-card">
+    <div class="table-header-bar">
+        <div class="table-title">
+            <i class="fas fa-receipt" style="color: var(--cyan-600);"></i>
+            <span>Recorded System Events (<span id="visible-events-count">{{ events|length }}</span> visible)</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">
+            <i class="fas fa-clock-rotate-left"></i> Real-time chronological sequence
+        </div>
+    </div>
+    
+    <div class="table-wrapper">
+        <table id="history-table">
+            <thead>
+                <tr>
+                    <th>Timestamp (Local)</th>
+                    <th>Associated Parcel</th>
+                    <th>Event Category</th>
+                    <th>Action Description</th>
+                    <th>Reporting Device</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in events %}
+                <tr>
+                    <td class="font-mono" style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap;">
+                        {{ event.created_at }}
+                    </td>
+                    <td>
+                        <strong class="font-mono" style="color: var(--text-primary); font-size: 0.88rem;">
+                            {{ event.parcel_id }}
+                        </strong>
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ event.event_type }}">
+                            <span class="status-dot {% if event.event_type == 'sorted' %}online{% elif event.event_type == 'scan' %}online pulse{% elif event.event_type == 'bin_full' %}warning{% elif event.event_type == 'error' %}offline{% else %}online{% endif %}"></span>
+                            {{ event.event_type|replace('_', ' ') }}
+                        </span>
+                    </td>
+                    <td style="font-size: 0.88rem; color: var(--text-primary);">
+                        {{ event.description }}
+                    </td>
+                    <td>
+                        <code class="font-mono" style="font-size: 0.78rem; background: var(--bg-surface-subtle); padding: 3px 8px; border-radius: 4px; color: var(--text-secondary);">
+                            {{ event.device_id or 'SYSTEM-CORE' }}
+                        </code>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5">
+                        <div class="empty-state">
+                            <i class="fas fa-clipboard-list"></i>
+                            <p>No historical events logged.</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentCategory = 'all';
+
+function setChipFilter(cat, btn) {
+    currentCategory = cat;
+    document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    applyHistoryFilter();
+}
+
+function applyHistoryFilter() {
+    const searchVal = document.getElementById('history-search').value.toLowerCase();
+    const rows = document.querySelectorAll('#history-table tbody tr');
+    let visible = 0;
+    
+    rows.forEach(row => {
+        // Col 1: Parcel, Col 2: Event Type, Col 3: Desc, Col 4: Device
+        const parcelText = (row.children[1]?.textContent || '').toLowerCase();
+        const typeText = (row.children[2]?.textContent || '').toLowerCase().replace(/\s+/g, '_');
+        const descText = (row.children[3]?.textContent || '').toLowerCase();
+        const deviceText = (row.children[4]?.textContent || '').toLowerCase();
+        
+        const matchesCategory = (currentCategory === 'all') || typeText.includes(currentCategory);
+        const matchesSearch = !searchVal || 
+            parcelText.includes(searchVal) || 
+            descText.includes(searchVal) || 
+            deviceText.includes(searchVal);
+            
+        if (matchesCategory && matchesSearch) {
+            row.style.display = '';
+            visible++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    const countEl = document.getElementById('visible-events-count');
+    if (countEl) countEl.textContent = visible;
+}
+</script>
+{% endblock %}

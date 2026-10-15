@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}Parcel Management — ParcelPulse IoT{% endblock %}
+
+{% block content %}
+<div class="page-header page-header-row">
+    <div>
+        <h1 class="page-title">Parcel Management</h1>
+        <p class="page-subtitle">Track, register, and inspect active parcels across Ahmedabad, Surat, and Rajkot transit hubs</p>
+    </div>
+    <div class="header-actions">
+        <button class="btn btn-cyan" onclick="openModal()">
+            <i class="fas fa-plus"></i> Register New Parcel
+        </button>
+    </div>
+</div>
+
+<!-- Quick Inventory Strip -->
+{% set ahm_count = parcels|selectattr('destination', 'equalto', 'Ahmedabad')|list|length %}
+{% set sur_count = parcels|selectattr('destination', 'equalto', 'Surat')|list|length %}
+{% set raj_count = parcels|selectattr('destination', 'equalto', 'Rajkot')|list|length %}
+
+<div class="stats-grid" style="margin-bottom: 24px; grid-template-columns: repeat(4, 1fr);">
+    <div class="stat-card-pro blue" style="padding: 16px 20px;">
+        <div class="stat-info-pro">
+            <span class="stat-label-pro">Total Inventory</span>
+            <div class="stat-val-pro" style="font-size: 1.6rem;">{{ parcels|length }}</div>
+        </div>
+        <div class="stat-icon-pro blue" style="width: 40px; height: 40px; font-size: 1.1rem;">
+            <i class="fas fa-boxes-packing"></i>
+        </div>
+    </div>
+
+    <div class="stat-card-pro cyan" style="padding: 16px 20px;">
+        <div class="stat-info-pro">
+            <span class="stat-label-pro">Ahmedabad (Lane 1)</span>
+            <div class="stat-val-pro" style="font-size: 1.6rem;">{{ ahm_count }}</div>
+        </div>
+        <div class="stat-icon-pro cyan" style="width: 40px; height: 40px; font-size: 1.1rem;">
+            <i class="fas fa-location-dot"></i>
+        </div>
+    </div>
+
+    <div class="stat-card-pro amber" style="padding: 16px 20px;">
+        <div class="stat-info-pro">
+            <span class="stat-label-pro">Surat (Lane 2)</span>
+            <div class="stat-val-pro" style="font-size: 1.6rem;">{{ sur_count }}</div>
+        </div>
+        <div class="stat-icon-pro amber" style="width: 40px; height: 40px; font-size: 1.1rem;">
+            <i class="fas fa-location-dot"></i>
+        </div>
+    </div>
+
+    <div class="stat-card-pro green" style="padding: 16px 20px;">
+        <div class="stat-info-pro">
+            <span class="stat-label-pro">Rajkot (Lane 3)</span>
+            <div class="stat-val-pro" style="font-size: 1.6rem;">{{ raj_count }}</div>
+        </div>
+        <div class="stat-icon-pro green" style="width: 40px; height: 40px; font-size: 1.1rem;">
+            <i class="fas fa-location-dot"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Search & Filtering Bar -->
+<div class="filter-bar">
+    <div class="search-input-wrapper">
+        <i class="fas fa-search"></i>
+        <input type="text" id="parcel-search" placeholder="Search by Parcel ID or QR identifier..." oninput="applyParcelFilters()">
+    </div>
+    
+    <select id="status-filter" class="filter-select" onchange="applyParcelFilters()">
+        <option value="all">All Sorting Statuses</option>
+        <option value="pending">Pending</option>
+        <option value="sorting">In Sorting</option>
+        <option value="sorted">Sorted to Bin</option>
+        <option value="delivered">Delivered</option>
+    </select>
+    
+    <select id="dest-filter" class="filter-select" onchange="applyParcelFilters()">
+        <option value="all">All Destinations</option>
+        <option value="Ahmedabad">Ahmedabad</option>
+        <option value="Surat">Surat</option>
+        <option value="Rajkot">Rajkot</option>
+    </select>
+</div>
+
+<!-- Parcels Data Table (NO WEIGHT COLUMNS) -->
+<div class="table-card">
+    <div class="table-header-bar">
+        <div class="table-title">
+            <i class="fas fa-dolly" style="color: var(--cyan-600);"></i>
+            <span>Registered Packages (<span id="visible-count">{{ parcels|length }}</span> / {{ parcels|length }})</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">
+            <i class="fas fa-shield-halved" style="color: var(--green-600);"></i> Load-cell bypassed: Dimensions & status verified
+        </div>
+    </div>
+    
+    <div class="table-wrapper">
+        <table id="parcels-table">
+            <thead>
+                <tr>
+                    <th>Parcel Identifier</th>
+                    <th>QR Optical Token</th>
+                    <th>Destination Lane</th>
+                    <th>Assigned Bin</th>
+                    <th>Sorting Status</th>
+                    <th>Created Timestamp</th>
+                    <th>Last Status Update</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in parcels %}
+                <tr>
+                    <td>
+                        <strong class="font-mono" style="font-size: 0.9rem; color: var(--text-primary);">
+                            {{ p.parcel_id }}
+                        </strong>
+                    </td>
+                    <td>
+                        <code class="font-mono" style="background: var(--bg-surface-subtle); padding: 2px 7px; border-radius: 4px; font-size: 0.8rem; color: #0284c7;">
+                            {{ p.qr_code or '-' }}
+                        </code>
+                    </td>
+                    <td>
+                        <span style="font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fas fa-location-dot" style="color: {% if p.destination == 'Ahmedabad' %}var(--cyan-600){% elif p.destination == 'Surat' %}var(--amber-500){% else %}var(--green-500){% endif %}; font-size: 0.85rem;"></i>
+                            {{ p.destination }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="font-mono" style="font-weight: 600; color: var(--text-secondary);">
+                            {{ 'Bin ' ~ p.bin_number if p.bin_number else 'Unassigned' }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ p.status }}">
+                            <span class="status-dot {% if p.status == 'sorted' %}online{% elif p.status == 'sorting' %}online pulse{% elif p.status == 'pending' %}warning{% else %}offline{% endif %}"></span>
+                            {{ p.status }}
+                        </span>
+                    </td>
+                    <td class="font-mono" style="font-size: 0.8rem; color: var(--text-muted);">{{ p.created_at }}</td>
+                    <td class="font-mono" style="font-size: 0.8rem; color: var(--text-muted);">{{ p.updated_at if p.updated_at else p.created_at }}</td>
+                    <td>
+                        <a href="/tracking?parcel_id={{ p.parcel_id }}" class="btn btn-secondary btn-sm" title="Track Live GPS Location" style="padding: 4px 10px; font-size: 0.78rem;">
+                            <i class="fas fa-crosshairs"></i> Track
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8">
+                        <div class="empty-state">
+                            <i class="fas fa-box-open"></i>
+                            <p>No parcels found in database.</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Register Parcel Modal (NO WEIGHT FIELD) -->
+<div class="modal-overlay" id="register-modal">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h2 class="modal-title">
+                <i class="fas fa-box" style="color: var(--cyan-600); margin-right: 8px;"></i>
+                Register New Parcel
+            </h2>
+            <button class="modal-close" onclick="closeModal()">
+                <i class="fas fa-xmark"></i>
+            </button>
+        </div>
+        
+        <form id="register-form" onsubmit="registerParcel(event)">
+            <div class="form-group">
+                <label for="parcel_id">Parcel Identifier *</label>
+                <input type="text" id="parcel_id" name="parcel_id" class="input-control font-mono" required placeholder="e.g. PP-AHM-005 or PKG-2001">
+            </div>
+            
+            <div class="form-group">
+                <label for="qr_code">QR Optical Identifier</label>
+                <input type="text" id="qr_code" name="qr_code" class="input-control font-mono" placeholder="Leave blank to auto-generate QR token">
+            </div>
+            
+            <div class="form-group">
+                <label for="destination">Destination Sorting Hub *</label>
+                <select id="destination" name="destination" class="input-control filter-select" style="width: 100%;" required>
+                    <option value="">-- Select Destination Hub --</option>
+                    <option value="Ahmedabad">Ahmedabad (Lane 1 • Bin 1)</option>
+                    <option value="Surat">Surat (Lane 2 • Bin 2)</option>
+                    <option value="Rajkot">Rajkot (Lane 3 • Bin 3)</option>
+                </select>
+            </div>
+            
+            <div class="form-error" id="form-error"></div>
+            
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-cyan">Register Parcel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function applyParcelFilters() {
+    const searchVal = document.getElementById('parcel-search').value.toLowerCase();
+    const statusVal = document.getElementById('status-filter').value.toLowerCase();
+    const destVal = document.getElementById('dest-filter').value.toLowerCase();
+    
+    const rows = document.querySelectorAll('#parcels-table tbody tr');
+    let visible = 0;
+    
+    rows.forEach(row => {
+        // Col 0: ID, Col 1: QR, Col 2: Destination, Col 4: Status
+        const idText = (row.children[0]?.textContent || '').toLowerCase();
+        const qrText = (row.children[1]?.textContent || '').toLowerCase();
+        const destText = (row.children[2]?.textContent || '').toLowerCase();
+        const statusText = (row.children[4]?.textContent || '').toLowerCase();
+        
+        const matchesSearch = !searchVal || idText.includes(searchVal) || qrText.includes(searchVal);
+        const matchesStatus = statusVal === 'all' || statusText.includes(statusVal);
+        const matchesDest = destVal === 'all' || destText.includes(destVal);
+        
+        if (matchesSearch && matchesStatus && matchesDest) {
+            row.style.display = '';
+            visible++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    const cntEl = document.getElementById('visible-count');
+    if (cntEl) cntEl.textContent = visible;
+}
+</script>
+{% endblock %}
