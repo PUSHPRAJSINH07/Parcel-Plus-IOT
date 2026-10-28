@@ -67,7 +67,7 @@
             </div>
             <div class="stat-subtext-pro">
                 {% if stats.full_bins > 0 %}
-                <i class="fas fa-triangle-exclamation" style="color: var(--red-600);"></i> Bin 2 (Surat) requires clearing
+                <i class="fas fa-triangle-exclamation" style="color: var(--red-600);"></i> {{ stats.full_bins }} bin(s) require clearing
                 {% else %}
                 <i class="fas fa-box" style="color: var(--blue-600);"></i> All bins operational
                 {% endif %}
@@ -294,6 +294,24 @@
             }).addTo(miniMap);
             marker.bindPopup(`<strong>${p.id}</strong><br>Dest: ${p.dest}`);
         });
+
+        // Auto-refresh dashboard when new QR scan is detected
+        let _lastEventId = null;
+        setInterval(async function() {
+            try {
+                const res = await fetch('/api/live-status');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.last_event) {
+                    if (_lastEventId === null) {
+                        _lastEventId = data.last_event.id;
+                    } else if (_lastEventId !== data.last_event.id) {
+                        _lastEventId = data.last_event.id;
+                        window.location.reload();
+                    }
+                }
+            } catch(e) {}
+        }, 2500);
     });
 </script>
 {% endblock %}

@@ -43,12 +43,25 @@ The application creates `parcelpulse.db` automatically on first run and seeds it
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/dashboard` | Dashboard statistics |
+| `GET` | `/api/live-status` | Real-time lightweight polling for live dashboard updates |
 | `GET` | `/api/parcels` | List all parcels |
 | `POST` | `/api/parcels` | Register a new parcel |
+| `POST` | `/api/scan` | Instant QR scan ingestion for ESP32-CAM via HTTP POST |
 | `GET` | `/api/parcels/<parcel_id>` | Get single parcel |
 | `GET` | `/api/gps/<parcel_id>` | Get GPS coordinates |
 | `GET` | `/api/sorting-events` | List sorting events |
 | `GET` | `/api/devices` | List all devices |
+
+### MQTT Topics (Live ESP32 & ESP32-CAM Pipeline)
+
+Default Public Broker: `broker.hivemq.com` (Port `1883`)
+
+| Topic | Direction | Payload Example | Purpose |
+|-------|-----------|-----------------|---------|
+| `parcelpulse/scan` | ESP32-CAM ➔ Server | `{"parcel_id": "PP-AHM-01", "destination": "Ahmedabad"}` | Publish scanned QR code |
+| `parcelpulse/sort_command` | Server ➔ Main ESP32 | `{"lane": 1, "bin_number": 1, "servo_angle": 45}` | Activates diverter servo |
+| `parcelpulse/heartbeat` | ESP32 ➔ Server | `{"device_id": "ESP32-SORT-02", "status": "online"}` | Device heartbeat ping |
+| `parcelpulse/gps` | Tracking ESP32 ➔ Server | `{"parcel_id": "PP-AHM-01", "latitude": 23.02, "longitude": 72.57}` | Live GPS update |
 
 ### Protected Endpoints (require `X-API-Key` header)
 

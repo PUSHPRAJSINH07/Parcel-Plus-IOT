@@ -10,8 +10,16 @@ import functools
 import json
 import os
 import sqlite3
+import threading
 import uuid
 from flask import Flask, g, jsonify, render_template, request
+
+# Try importing paho-mqtt
+try:
+    import paho.mqtt.client as mqtt
+    PAHO_AVAILABLE = True
+except ImportError:
+    PAHO_AVAILABLE = False
 
 # -----------------------------------------------------------------------------
 # Configuration & Application Initialization
@@ -108,108 +116,243 @@ def init_db():
 
 
 def seed_data():
-    """Populates initial demo data if the parcels table is currently empty."""
+    """Initializes default device slots as offline if not present. Does NOT inject sample parcels or fake events."""
     db = get_db()
-    count = db.execute('SELECT COUNT(*) FROM parcels').fetchone()[0]
-    if count > 0:
-        return
+    cursor = db.cursor()
 
-    now = datetime.datetime.now()
-    now_str = now.strftime('%Y-%m-%d %H:%M:%S')
-
-    # Seed 12 Demo Parcels
-    parcels = [
-        ('PP-AHM-001', 'QR-AHM-001', 'Ahmedabad', 2.5, 'sorted', 1, 23.0225, 72.5714),
-        ('PP-AHM-002', 'QR-AHM-002', 'Ahmedabad', 1.8, 'sorted', 1, 23.0300, 72.5800),
-        ('PP-AHM-003', 'QR-AHM-003', 'Ahmedabad', 3.2, 'pending', None, 23.0100, 72.5600),
-        ('PP-AHM-004', 'QR-AHM-004', 'Ahmedabad', 0.9, 'sorting', None, 23.0400, 72.5900),
-        ('PP-SUR-001', 'QR-SUR-001', 'Surat', 1.5, 'sorted', 2, 21.1702, 72.8311),
-        ('PP-SUR-002', 'QR-SUR-002', 'Surat', 4.1, 'sorted', 2, 21.1800, 72.8400),
-        ('PP-SUR-003', 'QR-SUR-003', 'Surat', 2.0, 'pending', None, 21.1600, 72.8200),
-        ('PP-SUR-004', 'QR-SUR-004', 'Surat', 1.2, 'sorting', None, 21.1900, 72.8500),
-        ('PP-RAJ-001', 'QR-RAJ-001', 'Rajkot', 3.0, 'sorted', 3, 22.3039, 70.8022),
-        ('PP-RAJ-002', 'QR-RAJ-002', 'Rajkot', 2.7, 'pending', None, 22.3100, 70.8100),
-        ('PP-RAJ-003', 'QR-RAJ-003', 'Rajkot', 1.4, 'pending', None, 22.2900, 70.7900),
-        ('PP-RAJ-004', 'QR-RAJ-004', 'Rajkot', 5.0, 'sorted', 3, 22.3200, 70.8200),
-    ]
-
-    for p in parcels:
-        gps_time = now_str if (p[6] is not None and p[7] is not None) else None
-        db.execute('''
-            INSERT INTO parcels (
-                parcel_id, qr_code, destination, weight, status,
-                bin_number, latitude, longitude, gps_updated_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], gps_time, now_str, now_str))
-
-    # Seed demo GPS tracking points for parcels with coordinates
-    for p in parcels:
-        if p[6] is not None and p[7] is not None:
-            db.execute('''
-                INSERT INTO gps_updates (parcel_id, latitude, longitude, timestamp)
-                VALUES (?, ?, ?, ?)
-            ''', (p[0], p[6], p[7], now_str))
-
-    # Seed 8 IoT Devices
+    # Ensure 8 device slots exist with status 'offline' and no fake timestamps
     devices = [
-        ('ESP32-SORT-01', 'esp32', 'ESP32 Sorter Node 1', 'online', now.isoformat()),
-        ('ESP32-SORT-02', 'esp32', 'ESP32 Sorter Node 2', 'online', now.isoformat()),
-        ('ESP32-SORT-03', 'esp32', 'ESP32 Sorter Node 3', 'offline', None),
-        ('CONV-01', 'conveyor', 'Main Conveyor Belt', 'online', now.isoformat()),
-        ('MTR-01', 'motor', 'Sorting Motor', 'online', now.isoformat()),
-        ('SRV-01', 'servo', 'Diverter Servo', 'online', now.isoformat()),
-        ('IR-01', 'ir_sensor', 'Entry IR Sensor', 'online', now.isoformat()),
-        ('IR-02', 'ir_sensor', 'Exit IR Sensor', 'online', now.isoformat()),
+        ('ESP32-SORT-01', 'esp32', 'Main ESP32 Sorter', 'offline'),
+        ('ESP32-SORT-02', 'esp32', 'ESP32-CAM Vision', 'offline'),
+        ('ESP32-SORT-03', 'esp32', 'Tracking ESP32', 'offline'),
+        ('CONV-01', 'conveyor', 'Main Conveyor Belt', 'offline'),
+        ('MTR-01', 'motor', 'Sorting Motor Driver', 'offline'),
+        ('SRV-01', 'servo', 'Diverter Servo', 'offline'),
+        ('IR-01', 'ir_sensor', 'Entry IR Sensor', 'offline'),
+        ('IR-02', 'ir_sensor', 'Exit IR Sensor', 'offline'),
     ]
 
     for d in devices:
-        db.execute('''
-            INSERT INTO devices (device_id, device_type, name, status, last_seen)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (d[0], d[1], d[2], d[3], d[4]))
-
-    # Seed 15+ Sorting Events with past timestamps
-    minus_3h = (now - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_2h55m = (now - timedelta(hours=2, minutes=55)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_2h30m = (now - timedelta(hours=2, minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_2h25m = (now - timedelta(hours=2, minutes=25)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_2h = (now - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_1h55m = (now - timedelta(hours=1, minutes=55)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_1h30m = (now - timedelta(hours=1, minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_1h25m = (now - timedelta(hours=1, minutes=25)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_1h = (now - timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_55m = (now - timedelta(minutes=55)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_45m = (now - timedelta(minutes=45)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_40m = (now - timedelta(minutes=40)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_20m = (now - timedelta(minutes=20)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_10m = (now - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
-    minus_5m = (now - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
-
-    events = [
-        ('PP-AHM-001', 'scan', 'Parcel scanned at entry', 'ESP32-SORT-01', minus_3h),
-        ('PP-AHM-001', 'sorted', 'Sorted to Bin 1 (Ahmedabad)', 'ESP32-SORT-01', minus_2h55m),
-        ('PP-SUR-001', 'scan', 'Parcel scanned at entry', 'ESP32-SORT-02', minus_2h30m),
-        ('PP-SUR-001', 'sorted', 'Sorted to Bin 2 (Surat)', 'ESP32-SORT-02', minus_2h25m),
-        ('PP-RAJ-001', 'scan', 'Parcel scanned at entry', 'ESP32-SORT-01', minus_2h),
-        ('PP-RAJ-001', 'sorted', 'Sorted to Bin 3 (Rajkot)', 'ESP32-SORT-01', minus_1h55m),
-        ('PP-AHM-002', 'scan', 'Parcel scanned at entry', 'ESP32-SORT-02', minus_1h30m),
-        ('PP-AHM-002', 'sorted', 'Sorted to Bin 1 (Ahmedabad)', 'ESP32-SORT-02', minus_1h25m),
-        ('PP-SUR-002', 'scan', 'Parcel scanned at entry', 'ESP32-SORT-01', minus_1h),
-        ('PP-SUR-002', 'sorted', 'Sorted to Bin 2 (Surat)', 'ESP32-SORT-01', minus_55m),
-        ('PP-RAJ-004', 'scan', 'Parcel scanned at entry', 'ESP32-SORT-02', minus_45m),
-        ('PP-RAJ-004', 'sorted', 'Sorted to Bin 3 (Rajkot)', 'ESP32-SORT-02', minus_40m),
-        ('PP-AHM-004', 'scan', 'Parcel scanned at entry', 'ESP32-SORT-01', minus_20m),
-        ('SYSTEM', 'bin_full', 'Bin 2 (Surat) is full — 15/15 capacity', 'IR-02', minus_10m),
-        ('PP-SUR-004', 'error', 'QR code scan failed — retrying', 'ESP32-SORT-02', minus_5m),
-    ]
-
-    for e in events:
-        db.execute('''
-            INSERT INTO sorting_events (parcel_id, event_type, description, device_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (e[0], e[1], e[2], e[3], e[4]))
+        cursor.execute('''
+            INSERT OR IGNORE INTO devices (device_id, device_type, name, status, last_seen)
+            VALUES (?, ?, ?, ?, NULL)
+        ''', (d[0], d[1], d[2], d[3]))
 
     db.commit()
+
+
+# -----------------------------------------------------------------------------
+# MQTT Client Integration & Live Scan Pipeline
+# -----------------------------------------------------------------------------
+MQTT_BROKER = os.environ.get('MQTT_BROKER', 'broker.hivemq.com')
+MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))
+MQTT_TOPIC_SCAN = os.environ.get('MQTT_TOPIC_SCAN', 'parcelpulse/scan')
+MQTT_TOPIC_HEARTBEAT = os.environ.get('MQTT_TOPIC_HEARTBEAT', 'parcelpulse/heartbeat')
+MQTT_TOPIC_GPS = os.environ.get('MQTT_TOPIC_GPS', 'parcelpulse/gps')
+MQTT_TOPIC_SORT_CMD = os.environ.get('MQTT_TOPIC_SORT_CMD', 'parcelpulse/sort_command')
+
+mqtt_client = None
+mqtt_connected = False
+
+
+def determine_destination(parcel_id, dest_hint=None):
+    """Infers destination from explicit hint or parcel identifier prefix (AHM, SUR, RAJ)."""
+    if dest_hint:
+        for valid in ['Ahmedabad', 'Surat', 'Rajkot']:
+            if valid.lower() in dest_hint.lower():
+                return valid
+    pid = (parcel_id or '').upper()
+    if 'AHM' in pid:
+        return 'Ahmedabad'
+    elif 'SUR' in pid:
+        return 'Surat'
+    elif 'RAJ' in pid:
+        return 'Rajkot'
+    return 'Ahmedabad'
+
+
+def get_routing_info(destination):
+    """Maps destination to conveyor sorting lane, bin number, and diverter servo angle."""
+    if destination == 'Ahmedabad':
+        return {'lane': 1, 'bin_number': 1, 'servo_angle': 45}
+    elif destination == 'Surat':
+        return {'lane': 2, 'bin_number': 2, 'servo_angle': 90}
+    elif destination == 'Rajkot':
+        return {'lane': 3, 'bin_number': 3, 'servo_angle': 135}
+    return {'lane': 1, 'bin_number': 1, 'servo_angle': 45}
+
+
+def process_live_scan(parcel_id, destination=None, qr_code=None, device_id='ESP32-SORT-02'):
+    """Records real-time QR scan event, updates parcel status, and pings ESP32-CAM device heartbeat."""
+    if not parcel_id:
+        return None
+
+    dest = determine_destination(parcel_id, destination)
+    routing = get_routing_info(dest)
+    qr_token = qr_code or f"QR-{parcel_id}"
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    existing = cur.execute('SELECT * FROM parcels WHERE parcel_id = ?', (parcel_id,)).fetchone()
+    if existing:
+        cur.execute('''
+            UPDATE parcels
+            SET status = 'sorting', qr_code = ?, destination = ?, bin_number = ?, updated_at = ?
+            WHERE parcel_id = ?
+        ''', (qr_token, dest, routing['bin_number'], now_str, parcel_id))
+    else:
+        cur.execute('''
+            INSERT INTO parcels (parcel_id, qr_code, destination, status, bin_number, created_at, updated_at)
+            VALUES (?, ?, ?, 'sorting', ?, ?, ?)
+        ''', (parcel_id, qr_token, dest, routing['bin_number'], now_str, now_str))
+
+    # Log the scan event
+    cur.execute('''
+        INSERT INTO sorting_events (parcel_id, event_type, description, device_id, created_at)
+        VALUES (?, 'scan', ?, ?, ?)
+    ''', (parcel_id, f'QR identified: {parcel_id} routed to {dest} (Lane {routing["lane"]})', device_id, now_str))
+
+    # Update ESP32-CAM device heartbeat to online
+    cur.execute('''
+        UPDATE devices
+        SET status = 'online', last_seen = ?
+        WHERE device_id = ? OR device_type = 'esp32' AND name LIKE '%CAM%'
+    ''', (now_str, device_id))
+
+    conn.commit()
+    conn.close()
+
+    result = {
+        'parcel_id': parcel_id,
+        'destination': dest,
+        'lane': routing['lane'],
+        'bin_number': routing['bin_number'],
+        'servo_angle': routing['servo_angle'],
+        'timestamp': now_str,
+        'device_id': device_id
+    }
+
+    # If MQTT is connected, publish sorting command to the broker so main ESP32 can actuate servo
+    if mqtt_client and mqtt_connected:
+        try:
+            mqtt_client.publish(MQTT_TOPIC_SORT_CMD, json.dumps(result))
+        except Exception as e:
+            print(f"[MQTT] Publish sort command error: {e}")
+
+    return result
+
+
+def on_mqtt_message(client, userdata, msg):
+    """Callback for messages arriving on subscribed MQTT topics."""
+    try:
+        topic = msg.topic
+        payload_str = msg.payload.decode('utf-8').strip()
+        print(f"[MQTT] Message received on {topic}: {payload_str}")
+
+        if topic == MQTT_TOPIC_SCAN:
+            try:
+                data = json.loads(payload_str)
+                pid = data.get('parcel_id') or data.get('id') or data.get('qr')
+                dest = data.get('destination') or data.get('dest')
+                dev = data.get('device_id', 'ESP32-SORT-02')
+            except Exception:
+                pid = payload_str
+                dest = None
+                dev = 'ESP32-SORT-02'
+
+            if pid:
+                process_live_scan(pid, destination=dest, device_id=dev)
+
+        elif topic == MQTT_TOPIC_HEARTBEAT:
+            try:
+                data = json.loads(payload_str)
+                dev_id = data.get('device_id')
+                status = data.get('status', 'online')
+            except Exception:
+                dev_id = payload_str
+                status = 'online'
+
+            if dev_id:
+                conn = sqlite3.connect(DATABASE)
+                now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                conn.execute('UPDATE devices SET status=?, last_seen=? WHERE device_id=?', (status, now_str, dev_id))
+                conn.commit()
+                conn.close()
+
+        elif topic == MQTT_TOPIC_GPS:
+            data = json.loads(payload_str)
+            pid = data.get('parcel_id')
+            lat = float(data.get('latitude', 0))
+            lon = float(data.get('longitude', 0))
+            now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            if pid and lat and lon:
+                conn = sqlite3.connect(DATABASE)
+                conn.execute('''
+                    INSERT INTO gps_updates (parcel_id, latitude, longitude, timestamp)
+                    VALUES (?, ?, ?, ?)
+                ''', (pid, lat, lon, now_str))
+                conn.execute('''
+                    UPDATE parcels SET latitude=?, longitude=?, gps_updated_at=?
+                    WHERE parcel_id=?
+                ''', (lat, lon, now_str, pid))
+                conn.execute('UPDATE devices SET status="online", last_seen=? WHERE device_id="ESP32-SORT-03"', (now_str,))
+                conn.commit()
+                conn.close()
+
+    except Exception as e:
+        print(f"[MQTT] Error processing message: {e}")
+
+
+def start_mqtt_client():
+    """Initializes background MQTT client subscriber connecting to public/local broker."""
+    global mqtt_client, mqtt_connected
+    if not PAHO_AVAILABLE:
+        print("[MQTT] Notice: paho-mqtt not available. Direct HTTP API mode active.")
+        return
+
+    try:
+        # Use CallbackAPIVersion.VERSION2 for paho-mqtt 2.x compatibility
+        try:
+            client = mqtt.Client(
+                callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+                client_id=f"ParcelPulse_Server_{uuid.uuid4().hex[:6]}"
+            )
+        except AttributeError:
+            client = mqtt.Client(client_id=f"ParcelPulse_Server_{uuid.uuid4().hex[:6]}")
+
+        def on_connect(c, userdata, flags, rc, properties=None):
+            global mqtt_connected
+            if rc == 0 or (hasattr(rc, 'value') and rc.value == 0):
+                mqtt_connected = True
+                print(f"[MQTT] Connected successfully to broker {MQTT_BROKER}:{MQTT_PORT}")
+                c.subscribe([
+                    (MQTT_TOPIC_SCAN, 0),
+                    (MQTT_TOPIC_HEARTBEAT, 0),
+                    (MQTT_TOPIC_GPS, 0)
+                ])
+                print(f"[MQTT] Subscribed to {MQTT_TOPIC_SCAN}, {MQTT_TOPIC_HEARTBEAT}, {MQTT_TOPIC_GPS}")
+            else:
+                mqtt_connected = False
+                print(f"[MQTT] Connection failed with code {rc}")
+
+        def on_disconnect(c, userdata, flags, rc=None, properties=None):
+            global mqtt_connected
+            mqtt_connected = False
+            print("[MQTT] Disconnected from broker.")
+
+        client.on_connect = on_connect
+        client.on_disconnect = on_disconnect
+        client.on_message = on_mqtt_message
+
+        client.connect_async(MQTT_BROKER, MQTT_PORT, keepalive=60)
+        client.loop_start()
+        mqtt_client = client
+        print(f"[MQTT] Background client started connecting to {MQTT_BROKER}...")
+    except Exception as e:
+        print(f"[MQTT] Notice: Could not connect to MQTT broker: {e}")
 
 
 # -----------------------------------------------------------------------------
@@ -238,11 +381,11 @@ def dashboard():
     sorting = db.execute("SELECT COUNT(*) FROM parcels WHERE status='sorting'").fetchone()[0]
     sorted_count = db.execute("SELECT COUNT(*) FROM parcels WHERE status='sorted'").fetchone()[0]
     
-    # Count full bins (for demo, bins with >= 4 parcels or explicitly flagged in alerts)
+    # Count full bins (bins with >= 15 parcels sorted into them)
     full_bins = db.execute(
-        "SELECT COUNT(DISTINCT bin_number) FROM parcels WHERE bin_number IS NOT NULL GROUP BY bin_number HAVING COUNT(*) >= 4"
+        "SELECT COUNT(DISTINCT bin_number) FROM parcels WHERE bin_number IS NOT NULL AND status='sorted' GROUP BY bin_number HAVING COUNT(*) >= 15"
     ).fetchall()
-    full_bins_count = max(len(full_bins), 1)  # Surat Bin 2 is at capacity in the demo scenario
+    full_bins_count = len(full_bins)
     
     devices_online = db.execute("SELECT COUNT(*) FROM devices WHERE status='online'").fetchone()[0]
     devices_total = db.execute('SELECT COUNT(*) FROM devices').fetchone()[0]
@@ -257,9 +400,16 @@ def dashboard():
         "SELECT * FROM sorting_events WHERE event_type IN ('bin_full', 'error') ORDER BY created_at DESC LIMIT 5"
     ).fetchall()
     
-    dest_stats = db.execute(
+    dest_rows = db.execute(
         'SELECT destination, COUNT(*) as count, SUM(CASE WHEN status="sorted" THEN 1 ELSE 0 END) as sorted_count FROM parcels GROUP BY destination'
     ).fetchall()
+    dest_dict = {r['destination']: r for r in dest_rows}
+    dest_stats = []
+    for d in ['Ahmedabad', 'Surat', 'Rajkot']:
+        if d in dest_dict:
+            dest_stats.append(dest_dict[d])
+        else:
+            dest_stats.append({'destination': d, 'count': 0, 'sorted_count': 0})
 
     # Coordinates for the compact live map
     mini_parcels = db.execute(
@@ -284,7 +434,8 @@ def dashboard():
         mini_parcels=mini_parcels,
         esp_main=esp_main,
         esp_cam=esp_cam,
-        esp_gps=esp_gps
+        esp_gps=esp_gps,
+        mqtt_connected=mqtt_connected
     )
 
 
@@ -338,47 +489,35 @@ def devices_page():
         "SELECT g.*, p.destination, p.status as parcel_status FROM gps_updates g LEFT JOIN parcels p ON g.parcel_id=p.parcel_id ORDER BY g.timestamp DESC LIMIT 1"
     ).fetchone()
 
-    # Destination lanes detail (Ahmedabad, Surat, Rajkot)
+    # Destination lanes detail (Ahmedabad, Surat, Rajkot) - 100% dynamic
     lanes_data = [
         {
             'lane': 1,
             'bin_number': 1,
             'destination': 'Ahmedabad',
             'angle': '45° Left',
-            'capacity_current': 2,
             'capacity_max': 15,
-            'is_full': False,
-            'status': 'Available',
             'color': '#00d4ff',
-            'last_event': 'Sorted to Bin 1 (Ahmedabad)'
         },
         {
             'lane': 2,
             'bin_number': 2,
             'destination': 'Surat',
             'angle': '90° Straight',
-            'capacity_current': 15,
             'capacity_max': 15,
-            'is_full': True,
-            'status': 'Bin Full',
             'color': '#f59e0b',
-            'last_event': 'Bin 2 (Surat) is full — 15/15 capacity'
         },
         {
             'lane': 3,
             'bin_number': 3,
             'destination': 'Rajkot',
             'angle': '135° Right',
-            'capacity_current': 2,
             'capacity_max': 15,
-            'is_full': False,
-            'status': 'Available',
             'color': '#10b981',
-            'last_event': 'Sorted to Bin 3 (Rajkot)'
         }
     ]
 
-    # Calculate live counts per lane from the database
+    active_bin_alert = None
     for lane in lanes_data:
         sorted_cnt = db.execute(
             "SELECT COUNT(*) FROM parcels WHERE destination=? AND status='sorted'",
@@ -390,6 +529,23 @@ def devices_page():
         ).fetchone()[0]
         lane['sorted_count'] = sorted_cnt
         lane['total_count'] = total_cnt
+        lane['capacity_current'] = sorted_cnt
+        lane['is_full'] = sorted_cnt >= lane['capacity_max']
+        lane['status'] = 'Bin Full' if lane['is_full'] else ('Empty' if sorted_cnt == 0 else 'Active')
+        
+        last_ev = db.execute(
+            "SELECT description FROM sorting_events WHERE description LIKE ? ORDER BY created_at DESC LIMIT 1",
+            (f"%{lane['destination']}%",)
+        ).fetchone()
+        lane['last_event'] = last_ev['description'] if last_ev else f"Awaiting sorting to {lane['destination']}"
+        
+        if lane['is_full']:
+            active_bin_alert = {
+                'destination': lane['destination'],
+                'bin_number': lane['bin_number'],
+                'lane': lane['lane'],
+                'capacity': f"{sorted_cnt}/{lane['capacity_max']}"
+            }
 
     # Device audit event log
     device_events = db.execute('SELECT * FROM sorting_events ORDER BY created_at DESC LIMIT 20').fetchall()
@@ -409,7 +565,9 @@ def devices_page():
         last_qr_parcel=last_qr_parcel,
         latest_gps=latest_gps,
         lanes=lanes_data,
-        device_events=device_events
+        active_bin_alert=active_bin_alert,
+        device_events=device_events,
+        mqtt_connected=mqtt_connected
     )
 
 
@@ -424,6 +582,81 @@ def history():
 # -----------------------------------------------------------------------------
 # REST API Endpoints
 # -----------------------------------------------------------------------------
+@app.route('/api/scan', methods=['POST'])
+def api_scan():
+    """Real-time QR Scan ingestion endpoint for ESP32-CAM via direct HTTP POST."""
+    data = request.get_json(silent=True) or request.form.to_dict() or {}
+    parcel_id = data.get('parcel_id') or data.get('qr_code') or data.get('id') or data.get('qr')
+    if not parcel_id:
+        return jsonify({'error': 'parcel_id or qr_code is required'}), 400
+
+    destination = data.get('destination') or data.get('dest')
+    device_id = data.get('device_id', 'ESP32-SORT-02')
+    qr_code = data.get('qr_code', f"QR-{parcel_id}")
+
+    res = process_live_scan(parcel_id, destination=destination, qr_code=qr_code, device_id=device_id)
+    return jsonify({
+        'success': True,
+        'message': 'QR code scanned and routing assigned',
+        'data': res
+    }), 200
+
+
+@app.route('/api/live-status', methods=['GET'])
+def api_live_status():
+    """Lightweight polling endpoint for live dashboard updates without page reloads."""
+    db = get_db()
+    total = db.execute('SELECT COUNT(*) FROM parcels').fetchone()[0]
+    pending = db.execute("SELECT COUNT(*) FROM parcels WHERE status='pending'").fetchone()[0]
+    sorting = db.execute("SELECT COUNT(*) FROM parcels WHERE status='sorting'").fetchone()[0]
+    sorted_count = db.execute("SELECT COUNT(*) FROM parcels WHERE status='sorted'").fetchone()[0]
+    full_bins = db.execute(
+        "SELECT COUNT(DISTINCT bin_number) FROM parcels WHERE bin_number IS NOT NULL AND status='sorted' GROUP BY bin_number HAVING COUNT(*) >= 15"
+    ).fetchall()
+
+    last_scan = db.execute(
+        "SELECT s.*, p.destination FROM sorting_events s LEFT JOIN parcels p ON s.parcel_id=p.parcel_id WHERE s.event_type IN ('scan', 'error') ORDER BY s.created_at DESC LIMIT 1"
+    ).fetchone()
+
+    last_event = db.execute('SELECT * FROM sorting_events ORDER BY created_at DESC LIMIT 1').fetchone()
+    recent_events = db.execute('SELECT * FROM sorting_events ORDER BY created_at DESC LIMIT 8').fetchall()
+    recent_alerts = db.execute(
+        "SELECT * FROM sorting_events WHERE event_type IN ('bin_full', 'error') ORDER BY created_at DESC LIMIT 5"
+    ).fetchall()
+
+    esp_main = db.execute("SELECT * FROM devices WHERE device_id='ESP32-SORT-01'").fetchone()
+    esp_cam = db.execute("SELECT * FROM devices WHERE device_id='ESP32-SORT-02'").fetchone()
+    esp_gps = db.execute("SELECT * FROM devices WHERE device_id='ESP32-SORT-03'").fetchone()
+
+    # Destination lane counts
+    lanes = {}
+    for d in ['Ahmedabad', 'Surat', 'Rajkot']:
+        s_cnt = db.execute("SELECT COUNT(*) FROM parcels WHERE destination=? AND status='sorted'", (d,)).fetchone()[0]
+        t_cnt = db.execute("SELECT COUNT(*) FROM parcels WHERE destination=?", (d,)).fetchone()[0]
+        lanes[d] = {'sorted': s_cnt, 'total': t_cnt, 'is_full': s_cnt >= 15}
+
+    return jsonify({
+        'stats': {
+            'total_parcels': total,
+            'pending': pending + sorting,
+            'sorted': sorted_count,
+            'full_bins': len(full_bins),
+            'devices_online': db.execute("SELECT COUNT(*) FROM devices WHERE status='online'").fetchone()[0]
+        },
+        'devices': {
+            'esp_main': dict(esp_main) if esp_main else None,
+            'esp_cam': dict(esp_cam) if esp_cam else None,
+            'esp_gps': dict(esp_gps) if esp_gps else None
+        },
+        'last_scan': dict(last_scan) if last_scan else None,
+        'last_event': dict(last_event) if last_event else None,
+        'recent_events': [dict(e) for e in recent_events],
+        'recent_alerts': [dict(a) for a in recent_alerts],
+        'lanes': lanes,
+        'mqtt_connected': mqtt_connected
+    })
+
+
 @app.route('/api/dashboard', methods=['GET'])
 def api_dashboard():
     """Returns dashboard statistics and overview metrics in JSON format."""
@@ -654,4 +887,6 @@ if __name__ == '__main__':
     with app.app_context():
         init_db()
         seed_data()
+    # Launch background MQTT listener for live ESP32-CAM and sensor telemetry
+    start_mqtt_client()
     app.run(host='0.0.0.0', port=5000, debug=True)

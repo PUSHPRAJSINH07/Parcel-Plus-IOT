@@ -15,12 +15,18 @@
     </div>
 </div>
 
-<!-- Honest Hardware State Disclaimer Banner -->
-<div class="alert-banner-warning">
-    <i class="fas fa-triangle-exclamation"></i>
-    <div>
-        <strong>Physical Hardware Disconnected:</strong>
-        No microcontrollers or sensors are currently wired to the local serial bus. Statuses displayed below reflect database records and hardware-emulated telemetry.
+<!-- Live Telemetry & MQTT Pipeline Status Banner -->
+<div class="alert-banner-info" style="border-left-color: var(--cyan-500); background: linear-gradient(90deg, #f0f9ff 0%, #e0f2fe 100%);">
+    <i class="fas fa-tower-broadcast"></i>
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 8px;">
+        <div>
+            <strong>Live Ingestion Active:</strong>
+            ESP32-CAM QR scans accepted via MQTT (<code>parcelpulse/scan</code>) or HTTP (<code>POST /api/scan</code>).
+        </div>
+        <span class="badge {% if mqtt_connected %}badge-online{% else %}badge-scan{% endif %}">
+            <span class="status-dot {% if mqtt_connected %}online pulse{% else %}warning{% endif %}"></span>
+            MQTT Broker: {% if mqtt_connected %}Connected (broker.hivemq.com){% else %}Ready{% endif %}
+        </span>
     </div>
 </div>
 
@@ -219,7 +225,9 @@
         <div class="conveyor-telemetry-pills">
             <div class="telemetry-pill">
                 <span class="t-label">Motor State</span>
-                <span class="t-val" style="color: var(--green-500);">FORWARD RUN</span>
+                <span class="t-val" style="color: {% if conveyor and conveyor.status == 'online' %}var(--green-500){% else %}var(--text-muted){% endif %};">
+                    {{ 'FORWARD RUN' if conveyor and conveyor.status == 'online' else 'STANDBY' }}
+                </span>
             </div>
             <div class="telemetry-pill">
                 <span class="t-label">PWM Speed</span>
@@ -227,7 +235,9 @@
             </div>
             <div class="telemetry-pill">
                 <span class="t-label">Safety Interlock</span>
-                <span class="t-val" style="color: var(--amber-500);">BIN-2 LOCK ACTIVE</span>
+                <span class="t-val" style="color: {% if active_bin_alert %}var(--amber-500){% else %}var(--green-500){% endif %};">
+                    {% if active_bin_alert %}BIN-{{ active_bin_alert.bin_number }} LOCK ACTIVE{% else %}ROUTING NOMINAL{% endif %}
+                </span>
             </div>
             <div class="telemetry-pill">
                 <span class="t-label">Controller Interface</span>
@@ -262,14 +272,15 @@
 
         <!-- Capacity Meter -->
         <div class="lane-progress-wrapper">
+            {% set fill_pct = ((lane.capacity_current / lane.capacity_max) * 100)|round(0)|int if lane.capacity_max > 0 else 0 %}
             <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 6px;">
                 <span style="font-weight: 600; color: var(--text-secondary);">Bin Fill Level</span>
                 <span class="font-mono" style="font-weight: 700; color: {% if lane.is_full %}var(--red-600){% else %}var(--text-primary){% endif %};">
-                    {{ lane.capacity_current }} / {{ lane.capacity_max }} Units ({% if lane.is_full %}100% FULL{% else %}13%{% endif %})
+                    {{ lane.capacity_current }} / {{ lane.capacity_max }} Units ({{ fill_pct }}%)
                 </span>
             </div>
             <div class="lane-progress-bar">
-                <div class="lane-progress-fill" style="width: {% if lane.is_full %}100%{% else %}13.3%{% endif %}; background: {% if lane.is_full %}var(--red-500){% else %}{{ lane.color }}{% endif %};"></div>
+                <div class="lane-progress-fill" style="width: {{ fill_pct }}%; background: {% if lane.is_full %}var(--red-500){% else %}{{ lane.color }}{% endif %};"></div>
             </div>
         </div>
 
@@ -299,6 +310,7 @@
 </div>
 
 <!-- SECTION D: Dedicated Bin-Full Alarm Station -->
+{% if active_bin_alert %}
 <div class="alert-banner-danger">
     <div style="display: flex; align-items: center; gap: 16px;">
         <div style="width: 44px; height: 44px; border-radius: 50%; background: #fee2e2; border: 2px solid var(--red-500); display: flex; align-items: center; justify-content: center; color: var(--red-600); font-size: 1.3rem;">
@@ -306,11 +318,11 @@
         </div>
         <div>
             <div style="font-weight: 700; font-size: 1.05rem; color: #991b1b; display: flex; align-items: center; gap: 8px;">
-                <span>CRITICAL HARDWARE ALERT: Collection Bin 2 (Surat) is at 100% Capacity</span>
+                <span>CRITICAL HARDWARE ALERT: Collection Bin {{ active_bin_alert.bin_number }} ({{ active_bin_alert.destination }}) is at Capacity</span>
                 <span class="badge badge-error" style="font-size: 0.7rem;">ACTION REQUIRED</span>
             </div>
             <p style="font-size: 0.85rem; color: #7f1d1d; margin-top: 2px;">
-                Exit IR Sensor <code>IR-02</code> detected continuous beam break for >5 seconds. Conveyor diverter interlock has been triggered to divert incoming Surat parcels to buffer.
+                IR Level Sensor triggered continuous beam break. Conveyor diverter interlock has been engaged to prevent overflow.
             </p>
         </div>
     </div>
@@ -323,6 +335,15 @@
         </span>
     </div>
 </div>
+{% else %}
+<div class="alert-banner-info" style="border-left-color: var(--green-500); background: linear-gradient(90deg, #ecfdf5 0%, #f0fdf4 100%); border-color: #a7f3d0; color: #065f46;">
+    <i class="fas fa-circle-check" style="color: var(--green-600);"></i>
+    <div>
+        <strong>All Collection Bins Operational:</strong>
+        IR optical sensors clear. Bins 1 (Ahmedabad), 2 (Surat), and 3 (Rajkot) are available with storage headroom.
+    </div>
+</div>
+{% endif %}
 
 <!-- SECTION E & F: Vision Scanner & GPS Inspection Two-Column -->
 <div class="tracking-layout-grid" style="margin-bottom: 28px;">
@@ -344,22 +365,22 @@
                     <i class="fas fa-qrcode"></i>
                 </div>
                 <div style="font-weight: 700; font-size: 1.05rem;" class="font-mono">
-                    {{ last_qr_event.parcel_id if last_qr_event else 'PP-AHM-004' }}
+                    {{ last_qr_event.parcel_id if last_qr_event else 'Awaiting Scan...' }}
                 </div>
                 <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">
-                    Recognised Destination: <strong style="color: var(--cyan-500);">{{ last_qr_parcel.destination if last_qr_parcel else 'Ahmedabad' }}</strong>
+                    Recognised Destination: <strong style="color: var(--cyan-500);">{{ last_qr_parcel.destination if last_qr_parcel else (last_qr_event.destination if last_qr_event and last_qr_event.destination else 'Standby') }}</strong>
                 </div>
             </div>
         </div>
 
         <div class="subsystem-row" style="margin-bottom: 8px;">
             <span>Last Scan Timestamp</span>
-            <span class="font-mono" style="font-weight: 600;">{{ last_qr_event.created_at if last_qr_event else 'Just now' }}</span>
+            <span class="font-mono" style="font-weight: 600;">{{ last_qr_event.created_at if last_qr_event else 'Awaiting intake' }}</span>
         </div>
         <div class="subsystem-row">
             <span>Scan Result Summary</span>
-            <span style="font-weight: 600; color: {% if last_qr_event and last_qr_event.event_type == 'error' %}var(--red-600){% else %}var(--green-600){% endif %};">
-                {{ last_qr_event.description if last_qr_event else 'Parcel scanned at entry' }}
+            <span style="font-weight: 600; color: {% if last_qr_event and last_qr_event.event_type == 'error' %}var(--red-600){% elif last_qr_event %}var(--green-600){% else %}var(--text-muted){% endif %};">
+                {{ last_qr_event.description if last_qr_event else 'No QR scans detected yet. Trigger ESP32-CAM to begin.' }}
             </span>
         </div>
     </div>
@@ -374,31 +395,40 @@
         <div style="background: var(--bg-surface-subtle); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--border-light); margin-bottom: 16px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <span style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted);">Current Telemetry Node</span>
-                <span class="badge badge-pending font-mono" style="font-size: 0.7rem;">SIMULATED FIX</span>
+                <span class="badge {% if latest_gps %}badge-online{% else %}badge-pending{% endif %} font-mono" style="font-size: 0.7rem;">
+                    {{ 'LIVE POSITION' if latest_gps else 'STANDBY' }}
+                </span>
             </div>
             
-            <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono);">
+            <div style="font-size: 1.4rem; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono);">
                 {% if latest_gps %}
                 {{ "%.6f"|format(latest_gps.latitude) }}° N<br>
                 {{ "%.6f"|format(latest_gps.longitude) }}° E
                 {% else %}
-                23.022500° N<br>72.571400° E
+                <span style="color: var(--text-muted); font-size: 1.1rem;">Awaiting GPS Fix...</span><br>
+                <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">No coordinates received</span>
                 {% endif %}
             </div>
             
             <div style="margin-top: 10px; font-size: 0.82rem; color: var(--text-muted); display: flex; justify-content: space-between;">
-                <span>Active Target: <strong class="font-mono" style="color: var(--text-primary);">{{ latest_gps.parcel_id if latest_gps else 'PP-AHM-001' }}</strong></span>
+                <span>Active Target: <strong class="font-mono" style="color: var(--text-primary);">{{ latest_gps.parcel_id if latest_gps else 'None' }}</strong></span>
                 <span>Region: <strong style="color: var(--cyan-600);">Gujarat, IN</strong></span>
             </div>
         </div>
 
         <div class="subsystem-row" style="margin-bottom: 8px;">
             <span>Last GPS Uplink</span>
-            <span class="font-mono" style="font-weight: 600;">{{ latest_gps.timestamp if latest_gps else 'N/A' }}</span>
+            <span class="font-mono" style="font-weight: 600;">{{ latest_gps.timestamp if latest_gps else 'None' }}</span>
         </div>
         <div class="subsystem-row" style="margin-bottom: 16px;">
             <span>Receiver Fix Integrity</span>
-            <span style="color: var(--green-600); font-weight: 600;"><i class="fas fa-check-circle"></i> 3D Demonstration Fix (8 Satellites)</span>
+            <span style="color: {% if latest_gps %}var(--green-600){% else %}var(--text-muted){% endif %}; font-weight: 600;">
+                {% if latest_gps %}
+                <i class="fas fa-check-circle"></i> Satellite Lock Active
+                {% else %}
+                <i class="fas fa-circle-pause"></i> Waiting for NMEA coordinates
+                {% endif %}
+            </span>
         </div>
 
         <a href="/tracking" class="btn btn-primary" style="width: 100%;">
@@ -466,5 +496,23 @@ function filterDeviceEvents() {
         r.style.display = text.includes(query) ? '' : 'none';
     });
 }
+
+// Auto-refresh control center when new scan or event is processed
+let _lastEventId = null;
+setInterval(async function() {
+    try {
+        const res = await fetch('/api/live-status');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.last_event) {
+            if (_lastEventId === null) {
+                _lastEventId = data.last_event.id;
+            } else if (_lastEventId !== data.last_event.id) {
+                _lastEventId = data.last_event.id;
+                window.location.reload();
+            }
+        }
+    } catch(e) {}
+}, 2500);
 </script>
 {% endblock %}
